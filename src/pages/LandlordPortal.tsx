@@ -5,7 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Users, Clock, CheckCircle, AlertTriangle, FileText, Plus, MoreHorizontal } from "lucide-react";
+import { Chat } from "@/components/ui/chat";
+import { AnimatedList } from "@/components/ui/animated-list";
+import { ArrowLeft, Users, Clock, CheckCircle, AlertTriangle, FileText, Plus, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface MaintenanceRequest {
@@ -29,8 +31,9 @@ interface WorkflowCard {
 const LandlordPortal = () => {
   const { toast } = useToast();
   const [selectedRequest, setSelectedRequest] = useState<MaintenanceRequest | null>(null);
+  const [showChat, setShowChat] = useState(false);
   
-  const [requests] = useState<MaintenanceRequest[]>([
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([
     {
       id: "REQ001",
       tenant: "Sarah Johnson",
@@ -117,6 +120,14 @@ const LandlordPortal = () => {
 
   const removeWorkflowCard = (id: string) => {
     setWorkflowCards(cards => cards.filter(card => card.id !== id));
+  };
+
+  const handleRequestCreated = (request: MaintenanceRequest) => {
+    setRequests(prev => [request, ...prev]);
+    toast({
+      title: "New Request Received",
+      description: `Maintenance request from tenant: ${request.description.substring(0, 50)}...`,
+    });
   };
 
   const stats = {
@@ -206,75 +217,77 @@ const LandlordPortal = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {requests.map((request) => (
-                      <TableRow 
-                        key={request.id} 
-                        className={request.urgency === "urgent" ? "bg-destructive/5" : ""}
-                      >
-                        <TableCell className="font-medium">{request.id}</TableCell>
-                        <TableCell>{request.tenant}</TableCell>
-                        <TableCell className="max-w-xs truncate">{request.description}</TableCell>
-                        <TableCell>
-                          <Badge variant={request.urgency}>{request.urgency}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={request.status}>{request.status.replace("-", " ")}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  onClick={() => setSelectedRequest(request)}
-                                >
-                                  View
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="max-w-2xl">
-                                <DialogHeader>
-                                  <DialogTitle>Request Details - {request.id}</DialogTitle>
-                                  <DialogDescription>
-                                    Maintenance request from {request.tenant}
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4">
-                                  <div>
-                                    <h4 className="font-semibold mb-2">Description</h4>
-                                    <p className="text-sm text-muted-foreground">{request.description}</p>
-                                  </div>
-                                  <div className="grid grid-cols-2 gap-4">
+                    <AnimatedList>
+                      {requests.map((request) => (
+                        <TableRow 
+                          key={request.id} 
+                          className={request.urgency === "urgent" ? "bg-destructive/5 animate-pulse" : "hover:bg-muted/50 transition-colors"}
+                        >
+                          <TableCell className="font-medium">{request.id}</TableCell>
+                          <TableCell>{request.tenant}</TableCell>
+                          <TableCell className="max-w-xs truncate">{request.description}</TableCell>
+                          <TableCell>
+                            <Badge variant={request.urgency}>{request.urgency}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={request.status}>{request.status.replace("-", " ")}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button 
+                                    variant="outline" 
+                                    size="sm"
+                                    onClick={() => setSelectedRequest(request)}
+                                  >
+                                    View
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                  <DialogHeader>
+                                    <DialogTitle>Request Details - {request.id}</DialogTitle>
+                                    <DialogDescription>
+                                      Maintenance request from {request.tenant}
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <div className="space-y-4">
                                     <div>
-                                      <h4 className="font-semibold mb-2">Category</h4>
-                                      <Badge variant="outline">{request.category}</Badge>
+                                      <h4 className="font-semibold mb-2">Description</h4>
+                                      <p className="text-sm text-muted-foreground">{request.description}</p>
                                     </div>
-                                    <div>
-                                      <h4 className="font-semibold mb-2">Priority</h4>
-                                      <Badge variant={request.urgency}>{request.urgency}</Badge>
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div>
+                                        <h4 className="font-semibold mb-2">Category</h4>
+                                        <Badge variant="outline">{request.category}</Badge>
+                                      </div>
+                                      <div>
+                                        <h4 className="font-semibold mb-2">Priority</h4>
+                                        <Badge variant={request.urgency}>{request.urgency}</Badge>
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 pt-4">
+                                      <Button 
+                                        onClick={() => handleMarkResolved(request.id)}
+                                        variant="success"
+                                      >
+                                        Mark Resolved
+                                      </Button>
+                                      <Button 
+                                        onClick={() => handleNotifyTenant(request.tenant)}
+                                        variant="outline"
+                                      >
+                                        Notify Tenant
+                                      </Button>
                                     </div>
                                   </div>
-                                  <div className="flex gap-2 pt-4">
-                                    <Button 
-                                      onClick={() => handleMarkResolved(request.id)}
-                                      variant="success"
-                                    >
-                                      Mark Resolved
-                                    </Button>
-                                    <Button 
-                                      onClick={() => handleNotifyTenant(request.tenant)}
-                                      variant="outline"
-                                    >
-                                      Notify Tenant
-                                    </Button>
-                                  </div>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </AnimatedList>
                   </TableBody>
                 </Table>
               </CardContent>
@@ -283,30 +296,60 @@ const LandlordPortal = () => {
 
           {/* Workflow & Actions */}
           <div className="space-y-6">
-            {/* Quick Actions */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+            {/* Quick Actions / Chat */}
+            <div className="space-y-4">
+              <div className="flex gap-2">
                 <Button 
-                  onClick={handleGenerateContract}
-                  variant="hero" 
-                  className="w-full justify-start"
+                  variant={!showChat ? "default" : "outline"} 
+                  onClick={() => setShowChat(false)}
+                  size="sm"
+                  className="flex-1"
                 >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Generate Lease Contract
+                  <FileText className="h-3 w-3 mr-1" />
+                  Actions
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <Users className="h-4 w-4 mr-2" />
-                  Manage Tenant Candidates
+                <Button 
+                  variant={showChat ? "default" : "outline"} 
+                  onClick={() => setShowChat(true)}
+                  size="sm"
+                  className="flex-1"
+                >
+                  <MessageCircle className="h-3 w-3 mr-1" />
+                  Chat
                 </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add New Property
-                </Button>
-              </CardContent>
-            </Card>
+              </div>
+
+              {showChat ? (
+                <Chat 
+                  placeholder="Type 'generate lease contract' or manage requests..."
+                  onRequestCreated={handleRequestCreated}
+                />
+              ) : (
+                <Card className="shadow-card">
+                  <CardHeader>
+                    <CardTitle>Quick Actions</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Button 
+                      onClick={handleGenerateContract}
+                      variant="hero" 
+                      className="w-full justify-start"
+                    >
+                      <FileText className="h-4 w-4 mr-2" />
+                      Generate Lease Contract
+                    </Button>
+                    <Button variant="outline" className="w-full justify-start">
+                      <Users className="h-4 w-4 mr-2" />
+                      Manage Tenant Candidates
+                    </Button>
+                    <Button variant="outline" className="w-full justify-start">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add New Property
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
 
             {/* Workflow Section */}
             <Card className="shadow-card">
@@ -317,32 +360,34 @@ const LandlordPortal = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {workflowCards.map((card) => (
-                  <div 
-                    key={card.id} 
-                    className="border rounded-lg p-4 space-y-2 cursor-move hover:shadow-card transition-shadow"
-                  >
-                    <div className="flex items-start justify-between">
-                      <h4 className="font-medium text-sm">{card.title}</h4>
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => removeWorkflowCard(card.id)}
-                        className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                      >
-                        ×
-                      </Button>
+                <AnimatedList className="space-y-3">
+                  {workflowCards.map((card) => (
+                    <div 
+                      key={card.id} 
+                      className="border rounded-lg p-4 space-y-2 cursor-move hover:shadow-card transition-all duration-200 hover:scale-[1.02]"
+                    >
+                      <div className="flex items-start justify-between">
+                        <h4 className="font-medium text-sm">{card.title}</h4>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => removeWorkflowCard(card.id)}
+                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                        >
+                          ×
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{card.description}</p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={card.priority} className="text-xs">
+                          {card.priority}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">•</span>
+                        <span className="text-xs text-muted-foreground capitalize">{card.type}</span>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">{card.description}</p>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={card.priority} className="text-xs">
-                        {card.priority}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">•</span>
-                      <span className="text-xs text-muted-foreground capitalize">{card.type}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </AnimatedList>
                 
                 {workflowCards.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">

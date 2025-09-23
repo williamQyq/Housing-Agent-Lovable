@@ -7,7 +7,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Send, Upload, Clock, CheckCircle, AlertTriangle } from "lucide-react";
+import { Chat } from "@/components/ui/chat";
+import { AnimatedList } from "@/components/ui/animated-list";
+import { ArrowLeft, Send, Upload, Clock, CheckCircle, AlertTriangle, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface MaintenanceRequest {
@@ -25,8 +27,9 @@ const TenantPortal = () => {
   const [description, setDescription] = useState("");
   const [urgency, setUrgency] = useState("");
   const [category, setCategory] = useState("");
+  const [showChat, setShowChat] = useState(false);
   
-  const [requests] = useState<MaintenanceRequest[]>([
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([
     {
       id: "REQ001",
       description: "Kitchen sink is leaking underneath. Water is pooling on the cabinet floor.",
@@ -74,6 +77,14 @@ const TenantPortal = () => {
     setCategory("");
   };
 
+  const handleRequestCreated = (request: MaintenanceRequest) => {
+    setRequests(prev => [request, ...prev]);
+    toast({
+      title: "Request Created",
+      description: `New ${request.urgency} priority ${request.category} request created from chat.`,
+    });
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "open":
@@ -104,18 +115,44 @@ const TenantPortal = () => {
 
       <div className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="grid lg:grid-cols-3 gap-8">
-          {/* New Request Form */}
+          {/* New Request Form / Chat */}
           <div className="lg:col-span-2">
-            <Card className="shadow-elevated">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Send className="h-5 w-5 text-primary" />
-                  Submit Maintenance Request
-                </CardTitle>
-                <CardDescription>
-                  Describe your issue and we'll get it resolved quickly.
-                </CardDescription>
-              </CardHeader>
+            <div className="space-y-4">
+              <div className="flex gap-2">
+                <Button 
+                  variant={!showChat ? "default" : "outline"} 
+                  onClick={() => setShowChat(false)}
+                  className="flex-1"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Form Mode
+                </Button>
+                <Button 
+                  variant={showChat ? "default" : "outline"} 
+                  onClick={() => setShowChat(true)}
+                  className="flex-1"
+                >
+                  <MessageCircle className="h-4 w-4 mr-2" />
+                  Chat Mode
+                </Button>
+              </div>
+
+              {showChat ? (
+                <Chat 
+                  placeholder="Describe your maintenance issue... I'll help create a request!"
+                  onRequestCreated={handleRequestCreated}
+                />
+              ) : (
+                <Card className="shadow-elevated">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Send className="h-5 w-5 text-primary" />
+                      Submit Maintenance Request
+                    </CardTitle>
+                    <CardDescription>
+                      Describe your issue and we'll get it resolved quickly.
+                    </CardDescription>
+                  </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div>
@@ -182,8 +219,10 @@ const TenantPortal = () => {
                     Submit Request
                   </Button>
                 </form>
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
 
           {/* Request History */}
@@ -196,31 +235,33 @@ const TenantPortal = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {requests.map((request) => (
-                  <div key={request.id} className="border rounded-lg p-4 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <span className="text-sm font-medium text-muted-foreground">
-                        {request.id}
-                      </span>
-                      <Badge variant={request.status} className="flex items-center gap-1">
-                        {getStatusIcon(request.status)}
-                        {request.status.replace("-", " ")}
-                      </Badge>
+                <AnimatedList className="space-y-4">
+                  {requests.map((request) => (
+                    <div key={request.id} className="border rounded-lg p-4 space-y-3 hover:shadow-card transition-shadow">
+                      <div className="flex items-start justify-between">
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {request.id}
+                        </span>
+                        <Badge variant={request.status} className="flex items-center gap-1">
+                          {getStatusIcon(request.status)}
+                          {request.status.replace("-", " ")}
+                        </Badge>
+                      </div>
+                      
+                      <p className="text-sm leading-relaxed">{request.description}</p>
+                      
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant={request.urgency}>
+                          {request.urgency}
+                        </Badge>
+                        <span>•</span>
+                        <span>{request.category}</span>
+                        <span>•</span>
+                        <span>{request.date}</span>
+                      </div>
                     </div>
-                    
-                    <p className="text-sm leading-relaxed">{request.description}</p>
-                    
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Badge variant={request.urgency}>
-                        {request.urgency}
-                      </Badge>
-                      <span>•</span>
-                      <span>{request.category}</span>
-                      <span>•</span>
-                      <span>{request.date}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </AnimatedList>
               </CardContent>
             </Card>
 
