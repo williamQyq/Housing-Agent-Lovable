@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Chat } from "@/components/ui/chat";
 import { AnimatedList } from "@/components/ui/animated-list";
-import { ArrowLeft, Users, Clock, CheckCircle, AlertTriangle, FileText, Plus, MessageCircle } from "lucide-react";
+import { ArrowLeft, Users, Clock, CheckCircle, AlertTriangle, FileText, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface MaintenanceRequest {
@@ -26,12 +26,16 @@ interface WorkflowCard {
   description: string;
   type: "task" | "document" | "maintenance";
   priority: "low" | "medium" | "high";
+  status?: "pending" | "in-progress" | "done";
 }
 
 const LandlordPortal = () => {
   const { toast } = useToast();
   const [selectedRequest, setSelectedRequest] = useState<MaintenanceRequest | null>(null);
-  const [showChat, setShowChat] = useState(false);
+  // DnD + status animation state for workflow
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [animatingDone, setAnimatingDone] = useState<Record<string, boolean>>({});
   
   const [requests, setRequests] = useState<MaintenanceRequest[]>([
     {
@@ -78,14 +82,16 @@ const LandlordPortal = () => {
       title: "Schedule Plumber for Unit 2A", 
       description: "Kitchen sink repair - contact Mike's Plumbing",
       type: "task",
-      priority: "high"
+      priority: "high",
+      status: "in-progress"
     },
     {
       id: "WF002",
       title: "Lease Contract - Sarah Johnson",
       description: "Generated lease renewal contract ready for review",
       type: "document", 
-      priority: "medium"
+      priority: "medium",
+      status: "pending"
     }
   ]);
 
@@ -120,6 +126,38 @@ const LandlordPortal = () => {
 
   const removeWorkflowCard = (id: string) => {
     setWorkflowCards(cards => cards.filter(card => card.id !== id));
+  };
+
+  const markWorkflowDone = (id: string) => {
+    setWorkflowCards(cards => cards.map(c => c.id === id ? { ...c, status: "done" } : c));
+    setAnimatingDone(prev => ({ ...prev, [id]: true }));
+    // Hide big checkmark after animation
+    setTimeout(() => {
+      setAnimatingDone(prev => ({ ...prev, [id]: false }));
+    }, 1200);
+  };
+
+  // Drag & Drop handlers
+  const handleDragStart = (index: number) => setDragIndex(index);
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setOverIndex(index);
+  };
+  const handleDrop = (index: number) => {
+    if (dragIndex === null) return;
+    if (dragIndex === index) {
+      setDragIndex(null);
+      setOverIndex(null);
+      return;
+    }
+    setWorkflowCards(prev => {
+      const next = [...prev];
+      const [moved] = next.splice(dragIndex, 1);
+      next.splice(index, 0, moved);
+      return next;
+    });
+    setDragIndex(null);
+    setOverIndex(null);
   };
 
   const handleRequestCreated = (request: MaintenanceRequest) => {
@@ -191,9 +229,11 @@ const LandlordPortal = () => {
           </Card>
         </div>
 
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* Maintenance Requests Table */}
-          <div className="lg:col-span-2">
+        {/* Main two-column layout */}
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
+          {/* Left Column: Requests + Workflow + Quick Actions */}
+          <div className="space-y-6 min-w-0">
+            {/* Maintenance Requests Table */}
             <Card className="shadow-elevated">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -217,141 +257,80 @@ const LandlordPortal = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    <AnimatedList>
-                      {requests.map((request) => (
-                        <TableRow 
-                          key={request.id} 
-                          className={request.urgency === "urgent" ? "bg-destructive/5 animate-pulse" : "hover:bg-muted/50 transition-colors"}
-                        >
-                          <TableCell className="font-medium">{request.id}</TableCell>
-                          <TableCell>{request.tenant}</TableCell>
-                          <TableCell className="max-w-xs truncate">{request.description}</TableCell>
-                          <TableCell>
-                            <Badge variant={request.urgency}>{request.urgency}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={request.status}>{request.status.replace("-", " ")}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Dialog>
-                                <DialogTrigger asChild>
-                                  <Button 
-                                    variant="outline" 
-                                    size="sm"
-                                    onClick={() => setSelectedRequest(request)}
-                                  >
-                                    View
-                                  </Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-2xl">
-                                  <DialogHeader>
-                                    <DialogTitle>Request Details - {request.id}</DialogTitle>
-                                    <DialogDescription>
-                                      Maintenance request from {request.tenant}
-                                    </DialogDescription>
-                                  </DialogHeader>
-                                  <div className="space-y-4">
+                    {requests.map((request) => (
+                      <TableRow 
+                        key={request.id} 
+                        className={request.urgency === "urgent" ? "bg-destructive/5 animate-pulse" : "hover:bg-muted/50 transition-colors"}
+                      >
+                        <TableCell className="font-medium">{request.id}</TableCell>
+                        <TableCell>{request.tenant}</TableCell>
+                        <TableCell className="max-w-xs truncate">{request.description}</TableCell>
+                        <TableCell>
+                          <Badge variant={request.urgency}>{request.urgency}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={request.status}>{request.status.replace("-", " ")}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => setSelectedRequest(request)}
+                                >
+                                  View
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-2xl">
+                                <DialogHeader>
+                                  <DialogTitle>Request Details - {request.id}</DialogTitle>
+                                  <DialogDescription>
+                                    Maintenance request from {request.tenant}
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4">
+                                  <div>
+                                    <h4 className="font-semibold mb-2">Description</h4>
+                                    <p className="text-sm text-muted-foreground">{request.description}</p>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                      <h4 className="font-semibold mb-2">Description</h4>
-                                      <p className="text-sm text-muted-foreground">{request.description}</p>
+                                      <h4 className="font-semibold mb-2">Category</h4>
+                                      <Badge variant="outline">{request.category}</Badge>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                      <div>
-                                        <h4 className="font-semibold mb-2">Category</h4>
-                                        <Badge variant="outline">{request.category}</Badge>
-                                      </div>
-                                      <div>
-                                        <h4 className="font-semibold mb-2">Priority</h4>
-                                        <Badge variant={request.urgency}>{request.urgency}</Badge>
-                                      </div>
-                                    </div>
-                                    <div className="flex gap-2 pt-4">
-                                      <Button 
-                                        onClick={() => handleMarkResolved(request.id)}
-                                        variant="success"
-                                      >
-                                        Mark Resolved
-                                      </Button>
-                                      <Button 
-                                        onClick={() => handleNotifyTenant(request.tenant)}
-                                        variant="outline"
-                                      >
-                                        Notify Tenant
-                                      </Button>
+                                    <div>
+                                      <h4 className="font-semibold mb-2">Priority</h4>
+                                      <Badge variant={request.urgency}>{request.urgency}</Badge>
                                     </div>
                                   </div>
-                                </DialogContent>
-                              </Dialog>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </AnimatedList>
+                                  <div className="flex gap-2 pt-4">
+                                    <Button 
+                                      onClick={() => handleMarkResolved(request.id)}
+                                      variant="success"
+                                    >
+                                      Mark Resolved
+                                    </Button>
+                                    <Button 
+                                      onClick={() => handleNotifyTenant(request.tenant)}
+                                      variant="outline"
+                                    >
+                                      Notify Tenant
+                                    </Button>
+                                  </div>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </CardContent>
             </Card>
-          </div>
-
-          {/* Workflow & Actions */}
-          <div className="space-y-6">
-            {/* Quick Actions / Chat */}
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <Button 
-                  variant={!showChat ? "default" : "outline"} 
-                  onClick={() => setShowChat(false)}
-                  size="sm"
-                  className="flex-1"
-                >
-                  <FileText className="h-3 w-3 mr-1" />
-                  Actions
-                </Button>
-                <Button 
-                  variant={showChat ? "default" : "outline"} 
-                  onClick={() => setShowChat(true)}
-                  size="sm"
-                  className="flex-1"
-                >
-                  <MessageCircle className="h-3 w-3 mr-1" />
-                  Chat
-                </Button>
-              </div>
-
-              {showChat ? (
-                <Chat 
-                  placeholder="Type 'generate lease contract' or manage requests..."
-                  onRequestCreated={handleRequestCreated}
-                />
-              ) : (
-                <Card className="shadow-card">
-                  <CardHeader>
-                    <CardTitle>Quick Actions</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Button 
-                      onClick={handleGenerateContract}
-                      variant="hero" 
-                      className="w-full justify-start"
-                    >
-                      <FileText className="h-4 w-4 mr-2" />
-                      Generate Lease Contract
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start">
-                      <Users className="h-4 w-4 mr-2" />
-                      Manage Tenant Candidates
-                    </Button>
-                    <Button variant="outline" className="w-full justify-start">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add New Property
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-
-            {/* Workflow Section */}
+            {/* Workflow Section (scrollable if long) */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle>Workflow</CardTitle>
@@ -360,43 +339,114 @@ const LandlordPortal = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                <AnimatedList className="space-y-3">
-                  {workflowCards.map((card) => (
-                    <div 
-                      key={card.id} 
-                      className="border rounded-lg p-4 space-y-2 cursor-move hover:shadow-card transition-all duration-200 hover:scale-[1.02]"
-                    >
-                      <div className="flex items-start justify-between">
-                        <h4 className="font-medium text-sm">{card.title}</h4>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => removeWorkflowCard(card.id)}
-                          className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
-                        >
-                          ×
-                        </Button>
+                <div className="max-h-[calc(100vh-16rem)] overflow-y-auto pr-1">
+                  <AnimatedList className="space-y-3">
+                    {workflowCards.map((card, index) => (
+                      <div
+                        key={card.id}
+                        draggable
+                        onDragStart={() => handleDragStart(index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDrop={() => handleDrop(index)}
+                        className={
+                          "relative border rounded-lg p-4 space-y-2 cursor-move transition-all duration-200 " +
+                          (overIndex === index ? "ring-2 ring-primary/50 scale-[1.01] " : "") +
+                          (dragIndex === index ? "opacity-70 " : "hover:shadow-card hover:scale-[1.02]")
+                        }
+                      >
+                        {/* Big animated check overlay */}
+                        {animatingDone[card.id] && (
+                          <div className="absolute inset-0 bg-background/60 backdrop-blur-[1px] rounded-lg flex items-center justify-center pointer-events-none">
+                            <CheckCircle className="h-16 w-16 text-success animate-check-pop" />
+                          </div>
+                        )}
+
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-medium text-sm">{card.title}</h4>
+                            {card.status === "done" && (
+                              <Badge variant="success" className="text-[10px]">Done</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {card.status !== "done" && (
+                              <Button
+                                variant="success"
+                                size="sm"
+                                onClick={() => markWorkflowDone(card.id)}
+                                className="h-6 px-2 text-xs"
+                              >
+                                Mark done
+                              </Button>
+                            )}
+                            <Button 
+                              variant="ghost" 
+                              size="sm"
+                              aria-label="Remove"
+                              onClick={() => removeWorkflowCard(card.id)}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            >
+                              ×
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{card.description}</p>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={card.priority} className="text-xs">
+                            {card.priority}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">•</span>
+                          <span className="text-xs text-muted-foreground capitalize">{card.type}</span>
+                        </div>
                       </div>
-                      <p className="text-xs text-muted-foreground">{card.description}</p>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={card.priority} className="text-xs">
-                          {card.priority}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">•</span>
-                        <span className="text-xs text-muted-foreground capitalize">{card.type}</span>
-                      </div>
+                    ))}
+                  </AnimatedList>
+
+                  {workflowCards.length === 0 && (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <p className="text-sm">No active workflow items</p>
+                      <p className="text-xs">Tasks will appear here automatically</p>
                     </div>
-                  ))}
-                </AnimatedList>
-                
-                {workflowCards.length === 0 && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <p className="text-sm">No active workflow items</p>
-                    <p className="text-xs">Tasks will appear here automatically</p>
-                  </div>
-                )}
+                  )}
+                </div>
               </CardContent>
             </Card>
+
+            {/* Quick Actions */}
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button 
+                  onClick={handleGenerateContract}
+                  variant="hero" 
+                  className="w-full justify-start"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Generate Lease Contract
+                </Button>
+                <Button variant="outline" className="w-full justify-start">
+                  <Users className="h-4 w-4 mr-2" />
+                  Manage Tenant Candidates
+                </Button>
+                <Button variant="outline" className="w-full justify-start">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add New Property
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column: Chat (sticky) */}
+          <div className="min-w-0">
+            <div className="lg:sticky lg:top-24">
+              <Chat
+                className="h-[calc(100vh-8rem)]"
+                placeholder="Type 'generate lease contract' or manage requests..."
+                onRequestCreated={handleRequestCreated}
+              />
+            </div>
           </div>
         </div>
       </div>

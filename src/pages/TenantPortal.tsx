@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Chat } from "@/components/ui/chat";
 import { AnimatedList } from "@/components/ui/animated-list";
-import { ArrowLeft, Send, Upload, Clock, CheckCircle, AlertTriangle, MessageCircle } from "lucide-react";
+import { ArrowLeft, Send, Upload, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface MaintenanceRequest {
@@ -27,7 +27,7 @@ const TenantPortal = () => {
   const [description, setDescription] = useState("");
   const [urgency, setUrgency] = useState("");
   const [category, setCategory] = useState("");
-  const [showChat, setShowChat] = useState(false);
+  // Two-column layout: chat is always visible on the right
   
   const [requests, setRequests] = useState<MaintenanceRequest[]>([
     {
@@ -113,37 +113,12 @@ const TenantPortal = () => {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="grid lg:grid-cols-3 gap-8">
-          {/* New Request Form / Chat */}
-          <div className="lg:col-span-2">
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <Button 
-                  variant={!showChat ? "default" : "outline"} 
-                  onClick={() => setShowChat(false)}
-                  className="flex-1"
-                >
-                  <Send className="h-4 w-4 mr-2" />
-                  Form Mode
-                </Button>
-                <Button 
-                  variant={showChat ? "default" : "outline"} 
-                  onClick={() => setShowChat(true)}
-                  className="flex-1"
-                >
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  Chat Mode
-                </Button>
-              </div>
-
-              {showChat ? (
-                <Chat 
-                  placeholder="Describe your maintenance issue... I'll help create a request!"
-                  onRequestCreated={handleRequestCreated}
-                />
-              ) : (
-                <Card className="shadow-elevated">
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
+        {/* Main two-column layout */}
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
+          {/* Left Column: Form + Recent Requests + Quick Actions */}
+          <div className="space-y-6 min-w-0">
+            <Card className="shadow-elevated">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Send className="h-5 w-5 text-primary" />
@@ -221,12 +196,7 @@ const TenantPortal = () => {
                 </form>
                   </CardContent>
                 </Card>
-              )}
-            </div>
-          </div>
-
-          {/* Request History */}
-          <div>
+            {/* Request History */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle>Recent Requests</CardTitle>
@@ -264,9 +234,8 @@ const TenantPortal = () => {
                 </AnimatedList>
               </CardContent>
             </Card>
-
             {/* Quick Actions */}
-            <Card className="shadow-card mt-6">
+            <Card className="shadow-card">
               <CardHeader>
                 <CardTitle>Quick Actions</CardTitle>
               </CardHeader>
@@ -281,6 +250,16 @@ const TenantPortal = () => {
                 </Button>
               </CardContent>
             </Card>
+          </div>
+          {/* Right Column: Chat (sticky) */}
+          <div className="min-w-0">
+            <div className="lg:sticky lg:top-24">
+              <Chat 
+                className="h-[calc(100vh-8rem)]"
+                placeholder="Describe your maintenance issue... I'll help create a request!"
+                onRequestCreated={handleRequestCreated}
+              />
+            </div>
           </div>
         </div>
       </div>
