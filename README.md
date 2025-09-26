@@ -60,6 +60,49 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Local Demo Setup (Master Server + MCP)
+
+To run the full demo with the MCP master server and SQLite data:
+
+1) Backend: Master Server
+
+```
+cd server-mcp/Housing-Property-Agent-MCP
+pip install -r requirements.txt
+
+# Initialize the SQLite database (one time)
+sqlite3 data/app.db < data/schema.sql
+sqlite3 data/app.db < data/seed.sql
+
+# Start the FastAPI server
+uvicorn master_server:app --host 0.0.0.0 --port 8000
+```
+
+2) Frontend: Environment
+
+Create `frontend/Housing-Agent-Lovable/.env.local` with:
+
+```
+VITE_MASTER_SERVER_BASE=http://localhost:8000
+# Demo identity (defaults to 1 if not set)
+VITE_LEASE_ID=1
+# Optional: used by chat request body for ticket creation
+VITE_TENANT_EMAIL=sarah@example.com
+```
+
+3) Frontend: Run
+
+```
+cd frontend/Housing-Agent-Lovable
+npm ci
+npm run dev
+```
+
+What happens:
+- TenantPortal Recent Requests loads from `GET /tenant/requests?leaseId=1` and renders items from SQLite.
+- LandlordPortal loads requests from `GET /landlord/requests`.
+- Chat posts prompts to `POST /chat`; the server uses MCP tools (and LLM if configured) and appends workflows to `public/workflows.json`.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/ecf5bcec-fb2b-4287-834f-707a0b5306bd) and click on Share -> Publish.

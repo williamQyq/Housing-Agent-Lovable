@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,8 +43,10 @@ const LandlordPortal = () => {
 
   // Load maintenance requests for landlord via master server
   useEffect(() => {
-    const base = (import.meta as any)?.env?.VITE_MASTER_SERVER_BASE as string | undefined;
-    if (!base) return;
+    const envBase = import.meta.env?.VITE_MASTER_SERVER_BASE as string | undefined;
+    const winBase = (globalThis as any)?.__MASTER_SERVER_BASE as string | undefined;
+    const storedBase = ((): string | undefined => { try { return localStorage.getItem('VITE_MASTER_SERVER_BASE') || undefined; } catch { return undefined; } })();
+    const base = envBase || winBase || storedBase || 'http://localhost:8000';
     const url = `${String(base).replace(/\/$/, "")}/landlord/requests`;
     (async () => {
       try {

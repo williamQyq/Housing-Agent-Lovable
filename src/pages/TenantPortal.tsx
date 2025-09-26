@@ -23,6 +23,33 @@ interface MaintenanceRequest {
   image?: string;
 }
 
+const FAKE_REQUESTS: MaintenanceRequest[] = [
+  {
+    id: "REQ1001",
+    description: "Kitchen sink is leaking underneath. Water is pooling on the cabinet floor.",
+    urgency: "high",
+    category: "plumbing",
+    status: "in-progress",
+    date: "2024-09-15"
+  },
+  {
+    id: "REQ1002",
+    description: "Heating unit in bedroom is making loud noises and not heating effectively.",
+    urgency: "medium",
+    category: "hvac",
+    status: "open",
+    date: "2024-09-20"
+  },
+  {
+    id: "REQ1003",
+    description: "Light fixture in bathroom is flickering intermittently.",
+    urgency: "low",
+    category: "electrical",
+    status: "resolved",
+    date: "2024-09-10"
+  }
+];
+
 const TenantPortal = () => {
   const { toast } = useToast();
   const [description, setDescription] = useState("");
@@ -30,21 +57,32 @@ const TenantPortal = () => {
   const [category, setCategory] = useState("");
   // Two-column layout: chat is always visible on the right
   
-  const [requests, setRequests] = useState<MaintenanceRequest[]>([
-  ]);
+  const [requests, setRequests] = useState<MaintenanceRequest[]>(FAKE_REQUESTS);
 
   // Load recent requests for the tenant via master server (SQLite MCP)
   const tenantEmail = (import.meta as any)?.env?.VITE_TENANT_EMAIL || "sarah@example.com";
+  const leaseId = Number((import.meta as any)?.env?.VITE_LEASE_ID || (globalThis as any)?.__LEASE_ID || 1);
+  const [requestsLoading, setRequestsLoading] = useState(true);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+
   useEffect(() => {
-    const base = (import.meta as any)?.env?.VITE_MASTER_SERVER_BASE as string | undefined;
-    if (!base) return; // master not configured; keep local defaults
-    const url = `${String(base).replace(/\/$/, "")}/tenant/requests?tenantEmail=${encodeURIComponent(tenantEmail)}`;
-    (async () => {
+    const loadRequests = async () => {
       try {
+        setRequestsLoading(true);
+        setRequestsError(null);
+        
+        const envBase = import.meta.env?.VITE_MASTER_SERVER_BASE as string | undefined;
+        const winBase = (globalThis as any)?.__MASTER_SERVER_BASE as string | undefined;
+        const storedBase = ((): string | undefined => { try { return localStorage.getItem('VITE_MASTER_SERVER_BASE') || undefined; } catch { return undefined; } })();
+        const base = envBase || winBase || storedBase || 'http://localhost:8000';
+        const url = `${String(base).replace(/\/$/, "")}/tenant/requests?leaseId=${encodeURIComponent(String(leaseId))}`;
+        
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        
         const data = (await res.json()) as { items?: any[] };
         const items = Array.isArray(data?.items) ? data.items : [];
+        
         // Map to MaintenanceRequest[]
         const mapped: MaintenanceRequest[] = items.map((it) => ({
           id: String(it.id ?? "").toUpperCase(),
@@ -54,13 +92,27 @@ const TenantPortal = () => {
           status: String(it.status ?? "open") as any,
           date: String(it.date ?? ""),
         }));
+        
         setRequests(mapped);
-      } catch {
-        // ignore and keep any existing local list
+        console.log(`Loaded ${mapped.length} maintenance requests for lease ${leaseId}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to load requests';
+        setRequestsError(errorMsg);
+        console.error('Failed to load tenant requests:', error);
+        // Keep FAKE_REQUESTS as fallback for demo purposes
+        toast({
+          title: "Connection Issue",
+          description: `Using demo data. ${errorMsg}`,
+          variant: "destructive",
+        });
+      } finally {
+        setRequestsLoading(false);
       }
-    })();
+    };
+
+    loadRequests();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [leaseId]);
 
   // Workflows from shared JSON file (visible to both portals)
   const { workflows, refresh, loading: workflowsLoading, error: workflowsError } = useWorkflows({ pollMs: 10000 });
@@ -91,7 +143,7 @@ const TenantPortal = () => {
     setRequests(prev => [request, ...prev]);
     toast({
       title: "Request Created",
-      description: `New ${request.urgency} priority ${request.category} request created from chat.`,
+      description: `New request created from chat.`,
     });
   };
 
@@ -144,6 +196,12 @@ const TenantPortal = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {requestsLoading && (
+                <div className="text-sm text-muted-foreground">Loading maintenance requests...</div>
+              )}
+              {requestsError && (
+                <div className="text-sm text-destructive">Error: {requestsError}</div>
+              )}
               <AnimatedList className="space-y-4">
                   {requests.map((request) => (
                     <div key={request.id} className="border rounded-lg p-4 space-y-3 hover:shadow-card transition-shadow">

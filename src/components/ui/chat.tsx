@@ -77,17 +77,40 @@ export const Chat = ({ className, onMessageSend, onRequestCreated, onAssistantSe
   const parseMaintenanceRequest = (content: string) => {
     const lowerContent = content.toLowerCase();
 
-    // Check if this looks like a maintenance request
+    // Heuristic detection of maintenance requests
+    const requestKeywords = ['leak', 'broken', 'not working', 'repair', 'fix', 'issue', 'problem', 'maintenance', 'heating', 'plumbing', 'electrical', 'hvac', 'light', 'outlet', 'appliance', 'dishwasher', 'washer', 'dryer'];
+    const isRequest = requestKeywords.some(keyword => lowerContent.includes(keyword));
+    if (!isRequest) return null;
 
-    /*
-      1. Use embedding classification model to detect if maintenance request
-      2. Use cls model detect urgency
-      3. Use cls model detect category
-     */
+    // Extract urgency
+    let urgency: "low" | "medium" | "high" | "urgent" = "medium";
+    if (lowerContent.includes('urgent') || lowerContent.includes('emergency') || lowerContent.includes('immediately')) {
+      urgency = "urgent";
+    } else if (lowerContent.includes('high') || lowerContent.includes('asap') || lowerContent.includes('quickly')) {
+      urgency = "high";
+    } else if (lowerContent.includes('low') || lowerContent.includes('when possible') || lowerContent.includes('eventually')) {
+      urgency = "low";
+    }
+
+    // Extract category
+    let category = "other";
+    if (lowerContent.includes('leak') || lowerContent.includes('plumb') || lowerContent.includes('water') || lowerContent.includes('sink') || lowerContent.includes('toilet') || lowerContent.includes('faucet')) {
+      category = "plumbing";
+    } else if (lowerContent.includes('heat') || lowerContent.includes('hvac') || lowerContent.includes('air') || lowerContent.includes('temperature')) {
+      category = "hvac";
+    } else if (lowerContent.includes('light') || lowerContent.includes('electrical') || lowerContent.includes('power') || lowerContent.includes('outlet')) {
+      category = "electrical";
+    } else if (lowerContent.includes('appliance') || lowerContent.includes('refrigerator') || lowerContent.includes('stove') || lowerContent.includes('washer') || lowerContent.includes('dryer') || lowerContent.includes('dishwasher')) {
+      category = "appliances";
+    } else if (lowerContent.includes('wall') || lowerContent.includes('ceiling') || lowerContent.includes('floor') || lowerContent.includes('door') || lowerContent.includes('window')) {
+      category = "structural";
+    }
 
     return {
       id: `REQ${Date.now()}`,
       description: content,
+      urgency,
+      category,
       status: "open" as const,
       date: new Date().toISOString().split('T')[0],
       files: files.length > 0 ? files : undefined
@@ -126,13 +149,57 @@ export const Chat = ({ className, onMessageSend, onRequestCreated, onAssistantSe
     const url = `${base.replace(/\/$/, "")}/chat`;
     (async () => {
       try {
+        // Try streaming endpoint first for progressive updates
+        const streamUrl = `${base.replace(/\/$/, "")}/chat/stream`;
+          const streamRes = await fetch(streamUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+            body: JSON.stringify({
+              prompt: message,
+              tenantEmail: (import.meta as any)?.env?.VITE_TENANT_EMAIL || (globalThis as any)?.__TENANT_EMAIL || undefined,
+              leaseId: Number((import.meta as any)?.env?.VITE_LEASE_ID || (globalThis as any)?.__LEASE_ID || 1),
+              meta: request ? { requestId: request.id } : undefined,
+            }),
+          });
+        if (streamRes.ok && streamRes.body) {
+          const reader = streamRes.body.getReader();
+          const decoder = new TextDecoder();
+          let sysId = Math.random().toString(36).substr(2, 9);
+          let sysContent = "";
+          setMessages(prev => [
+            ...prev,
+            { id: sysId, content: "", type: "system", timestamp: new Date() },
+          ]);
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const events = chunk.split(/\n\n/).filter(Boolean);
+            for (const ev of events) {
+              const line = ev.split("\n").find(l => l.startsWith("data:"));
+              if (!line) continue;
+              try {
+                const payload = JSON.parse(line.slice(5).trim());
+                if (payload.type === "text" && typeof payload.message === "string") {
+                  sysContent += (sysContent ? " " : "") + payload.message;
+                  setMessages(prev => prev.map(m => m.id === sysId ? { ...m, content: sysContent } : m));
+                }
+              } catch { /* ignore */ }
+            }
+          }
+          onAssistantSent?.(sysContent || "", (request as unknown) ?? null);
+          return; // streamed path handled
+        }
+
+        // Fallback to non-streaming endpoint
         const res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            prompt: message, 
+          body: JSON.stringify({
+            prompt: message,
             tenantEmail: (import.meta as any)?.env?.VITE_TENANT_EMAIL || (globalThis as any)?.__TENANT_EMAIL || undefined,
-            meta: request ? { requestId: request.id } : undefined 
+            leaseId: Number((import.meta as any)?.env?.VITE_LEASE_ID || (globalThis as any)?.__LEASE_ID || 1),
+            meta: request ? { requestId: request.id } : undefined,
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
