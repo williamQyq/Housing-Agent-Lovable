@@ -23,33 +23,6 @@ interface MaintenanceRequest {
   image?: string;
 }
 
-const FAKE_REQUESTS: MaintenanceRequest[] = [
-  {
-    id: "REQ1001",
-    description: "Kitchen sink is leaking underneath. Water is pooling on the cabinet floor.",
-    urgency: "high",
-    category: "plumbing",
-    status: "in-progress",
-    date: "2024-09-15"
-  },
-  {
-    id: "REQ1002",
-    description: "Heating unit in bedroom is making loud noises and not heating effectively.",
-    urgency: "medium",
-    category: "hvac",
-    status: "open",
-    date: "2024-09-20"
-  },
-  {
-    id: "REQ1003",
-    description: "Light fixture in bathroom is flickering intermittently.",
-    urgency: "low",
-    category: "electrical",
-    status: "resolved",
-    date: "2024-09-10"
-  }
-];
-
 const TenantPortal = () => {
   const { toast } = useToast();
   const [description, setDescription] = useState("");
@@ -57,7 +30,7 @@ const TenantPortal = () => {
   const [category, setCategory] = useState("");
   // Two-column layout: chat is always visible on the right
   
-  const [requests, setRequests] = useState<MaintenanceRequest[]>(FAKE_REQUESTS);
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
 
   // Load recent requests for the tenant via master server (SQLite MCP)
   const tenantEmail = (import.meta as any)?.env?.VITE_TENANT_EMAIL || "sarah@example.com";
@@ -80,29 +53,17 @@ const TenantPortal = () => {
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         
-        const data = (await res.json()) as { items?: any[] };
+        const data = (await res.json()) as { items?: MaintenanceRequest[] };
         const items = Array.isArray(data?.items) ? data.items : [];
-        
-        // Map to MaintenanceRequest[]
-        const mapped: MaintenanceRequest[] = items.map((it) => ({
-          id: String(it.id ?? "").toUpperCase(),
-          description: String(it.description ?? ""),
-          urgency: (String(it.urgency ?? "medium") as any),
-          category: String(it.category ?? "other"),
-          status: String(it.status ?? "open") as any,
-          date: String(it.date ?? ""),
-        }));
-        
-        setRequests(mapped);
-        console.log(`Loaded ${mapped.length} maintenance requests for lease ${leaseId}`);
+        setRequests(items);
+        console.log(`Loaded ${items.length} maintenance requests for lease ${leaseId}`);
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Failed to load requests';
         setRequestsError(errorMsg);
         console.error('Failed to load tenant requests:', error);
-        // Keep FAKE_REQUESTS as fallback for demo purposes
         toast({
-          title: "Connection Issue",
-          description: `Using demo data. ${errorMsg}`,
+          title: "Failed to load requests",
+          description: `${errorMsg}. Ensure Master Server is running at VITE_MASTER_SERVER_BASE and SQLite is accessible.`,
           variant: "destructive",
         });
       } finally {
@@ -201,6 +162,9 @@ const TenantPortal = () => {
               )}
               {requestsError && (
                 <div className="text-sm text-destructive">Error: {requestsError}</div>
+              )}
+              {!requestsLoading && !requestsError && requests.length === 0 && (
+                <div className="text-sm text-muted-foreground">No maintenance requests found.</div>
               )}
               <AnimatedList className="space-y-4">
                   {requests.map((request) => (

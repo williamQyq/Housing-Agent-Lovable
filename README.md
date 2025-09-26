@@ -101,7 +101,20 @@ npm run dev
 What happens:
 - TenantPortal Recent Requests loads from `GET /tenant/requests?leaseId=1` and renders items from SQLite.
 - LandlordPortal loads requests from `GET /landlord/requests`.
-- Chat posts prompts to `POST /chat`; the server uses MCP tools (and LLM if configured) and appends workflows to `public/workflows.json`.
+- Chat tries `POST /chat/stream` for streaming updates and automatically falls back to `POST /chat`.
+- The server uses MCP tools (and LLM if configured) and appends workflows to `public/workflows.json`.
+
+## Troubleshooting
+
+- 404 on `/tenant/requests`:
+  - You’re likely running the wrong server. Start from `server-mcp/Housing-Property-Agent-MCP` with: `uvicorn master_server:app --host 0.0.0.0 --port 8000`.
+  - Visit `http://localhost:8000/docs` and confirm `/tenant/requests` is listed.
+
+- 404 on `/chat/stream`:
+  - Indicates an older server build without the streaming route. The app will fall back to `/chat` automatically.
+
+- 500 on `/chat`:
+  - MCP tools not connected or DB missing. Ensure you initialized the DB and that the Python stdio servers can start (see `server_config.json`). On server startup, resolve any `[startup] Warning: MCP servers not connected` issues.
 
 ## How can I deploy this project?
 
