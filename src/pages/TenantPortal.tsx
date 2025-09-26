@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { Chat } from "@/components/ui/chat";
 import { AnimatedList } from "@/components/ui/animated-list";
 import { ArrowLeft, Send, Upload, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useWorkflows, type WorkflowEntry, type WorkflowStep } from "@/hooks/useWorkflows";
 
 interface MaintenanceRequest {
   id: string;
@@ -30,31 +31,40 @@ const TenantPortal = () => {
   // Two-column layout: chat is always visible on the right
   
   const [requests, setRequests] = useState<MaintenanceRequest[]>([
-    {
-      id: "REQ001",
-      description: "Kitchen sink is leaking underneath. Water is pooling on the cabinet floor.",
-      urgency: "high",
-      category: "Plumbing",
-      status: "in-progress",
-      date: "2024-01-15"
-    },
-    {
-      id: "REQ002", 
-      description: "Heating unit in bedroom is making loud noises and not heating effectively.",
-      urgency: "medium",
-      category: "HVAC",
-      status: "open",
-      date: "2024-01-12"
-    },
-    {
-      id: "REQ003",
-      description: "Light fixture in bathroom is flickering intermittently.",
-      urgency: "low",
-      category: "Electrical",
-      status: "resolved",
-      date: "2024-01-08"
-    }
   ]);
+
+  // Load recent requests for the tenant via master server (SQLite MCP)
+  const tenantEmail = (import.meta as any)?.env?.VITE_TENANT_EMAIL || "sarah@example.com";
+  useEffect(() => {
+    const base = (import.meta as any)?.env?.VITE_MASTER_SERVER_BASE as string | undefined;
+    if (!base) return; // master not configured; keep local defaults
+    const url = `${String(base).replace(/\/$/, "")}/tenant/requests?tenantEmail=${encodeURIComponent(tenantEmail)}`;
+    (async () => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { items?: any[] };
+        const items = Array.isArray(data?.items) ? data.items : [];
+        // Map to MaintenanceRequest[]
+        const mapped: MaintenanceRequest[] = items.map((it) => ({
+          id: String(it.id ?? "").toUpperCase(),
+          description: String(it.description ?? ""),
+          urgency: (String(it.urgency ?? "medium") as any),
+          category: String(it.category ?? "other"),
+          status: String(it.status ?? "open") as any,
+          date: String(it.date ?? ""),
+        }));
+        setRequests(mapped);
+      } catch {
+        // ignore and keep any existing local list
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Workflows from shared JSON file (visible to both portals)
+  const { workflows, refresh, loading: workflowsLoading, error: workflowsError } = useWorkflows({ pollMs: 10000 });
+  const getWorkflowTitle = (w: WorkflowEntry) => (w.steps?.[0]?.title ?? "Planned workflow");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +92,13 @@ const TenantPortal = () => {
     toast({
       title: "Request Created",
       description: `New ${request.urgency} priority ${request.category} request created from chat.`,
+    });
+  };
+
+  const handleAssistantSent = (responseText: string, request: MaintenanceRequest) => {
+    toast({
+      title: "Sent to assistant",
+      description: responseText?.slice(0, 140) || `Processed request ${request.id}`,
     });
   };
 
@@ -118,6 +135,110 @@ const TenantPortal = () => {
         <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_420px]">
           {/* Left Column: Form + Recent Requests + Quick Actions */}
           <div className="space-y-6 min-w-0">
+          {/* Request History */}
+          <Card className="shadow-card">
+            <CardHeader>
+              <CardTitle>Recent Requests</CardTitle>
+              <CardDescription>
+                Track the status of your maintenance requests
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <AnimatedList className="space-y-4">
+                  {requests.map((request) => (
+                    <div key={request.id} className="border rounded-lg p-4 space-y-3 hover:shadow-card transition-shadow">
+                      <div className="flex items-start justify-between">
+                        <span className="text-sm font-medium text-muted-foreground">
+                          {request.id}
+                        </span>
+                        <Badge variant={request.status} className="flex items-center gap-1">
+                          {getStatusIcon(request.status)}
+                          {request.status.replace("-", " ")}
+                        </Badge>
+                      </div>
+                      
+                      <p className="text-sm leading-relaxed">{request.description}</p>
+                      
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant={request.urgency}>
+                          {request.urgency}
+                        </Badge>
+                        <span>•</span>
+                        <span>{request.category}</span>
+                        <span>•</span>
+                        <span>{request.date}</span>
+                      </div>
+                    </div>
+                  ))}
+              </AnimatedList>
+            </CardContent>
+          </Card>
+
+          {/* Shared Workflow Cards (read-only from workflows.json) */}
+          <Card className="shadow-card">
+            <CardHeader>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <CardTitle>Workflow Updates</CardTitle>
+                  <CardDescription>Steps created by the agent</CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={refresh}>Refresh</Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {workflowsError && (
+                <div className="text-sm text-destructive">Failed to load workflows: {workflowsError}</div>
+              )}
+              {workflowsLoading && (
+                <div className="text-sm text-muted-foreground">Loading workflows…</div>
+              )}
+              {!workflowsLoading && !workflowsError && workflows.length === 0 && (
+                <div className="text-sm text-muted-foreground">No workflow entries yet.</div>
+              )}
+
+              <div className="space-y-3">
+                {workflows.map((w) => (
+                  <div key={w.id} className="border rounded-lg p-4 hover:shadow-card transition-shadow">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h4 className="font-medium text-sm">{getWorkflowTitle(w)}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">{w.prompt}</p>
+                      </div>
+                      <Badge variant="outline" className="text-[10px]">{new Date(w.createdAt).toLocaleString()}</Badge>
+                    </div>
+                    {w.steps && w.steps.length > 0 && (
+                      <div className="mt-3 space-y-1">
+                        {w.steps.map((s, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-xs">
+                            <Badge variant={s.status === 'done' ? 'success' : s.status === 'error' ? 'destructive' : 'secondary'}>{s.status}</Badge>
+                            <span className="text-foreground">{s.title}</span>
+                            {s.note && <span className="text-muted-foreground">— {s.note}</span>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          {/* Quick Actions */}
+          <Card className="shadow-card">
+            <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Button variant="outline" className="w-full justify-start">
+                  <Upload className="h-4 w-4 mr-2" />
+                  Upload Documents
+                </Button>
+                <Button variant="outline" className="w-full justify-start">
+                  <Send className="h-4 w-4 mr-2" />
+                  Contact Landlord
+                </Button>
+              </CardContent>
+            </Card>
+            {/* Submit Request Form*/}
             <Card className="shadow-elevated">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -196,60 +317,6 @@ const TenantPortal = () => {
                 </form>
                   </CardContent>
                 </Card>
-            {/* Request History */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle>Recent Requests</CardTitle>
-                <CardDescription>
-                  Track the status of your maintenance requests
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <AnimatedList className="space-y-4">
-                  {requests.map((request) => (
-                    <div key={request.id} className="border rounded-lg p-4 space-y-3 hover:shadow-card transition-shadow">
-                      <div className="flex items-start justify-between">
-                        <span className="text-sm font-medium text-muted-foreground">
-                          {request.id}
-                        </span>
-                        <Badge variant={request.status} className="flex items-center gap-1">
-                          {getStatusIcon(request.status)}
-                          {request.status.replace("-", " ")}
-                        </Badge>
-                      </div>
-                      
-                      <p className="text-sm leading-relaxed">{request.description}</p>
-                      
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant={request.urgency}>
-                          {request.urgency}
-                        </Badge>
-                        <span>•</span>
-                        <span>{request.category}</span>
-                        <span>•</span>
-                        <span>{request.date}</span>
-                      </div>
-                    </div>
-                  ))}
-                </AnimatedList>
-              </CardContent>
-            </Card>
-            {/* Quick Actions */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button variant="outline" className="w-full justify-start">
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload Documents
-                </Button>
-                <Button variant="outline" className="w-full justify-start">
-                  <Send className="h-4 w-4 mr-2" />
-                  Contact Landlord
-                </Button>
-              </CardContent>
-            </Card>
           </div>
           {/* Right Column: Chat (sticky) */}
           <div className="min-w-0">
@@ -258,6 +325,7 @@ const TenantPortal = () => {
                 className="h-[calc(100vh-8rem)]"
                 placeholder="Describe your maintenance issue... I'll help create a request!"
                 onRequestCreated={handleRequestCreated}
+                onAssistantSent={handleAssistantSent}
               />
             </div>
           </div>

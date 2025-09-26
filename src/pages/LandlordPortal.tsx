@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,7 @@ import { Chat } from "@/components/ui/chat";
 import { AnimatedList } from "@/components/ui/animated-list";
 import { ArrowLeft, Users, Clock, CheckCircle, AlertTriangle, FileText, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useWorkflows, type WorkflowEntry, type WorkflowStep } from "@/hooks/useWorkflows";
 
 interface MaintenanceRequest {
   id: string;
@@ -20,14 +21,15 @@ interface MaintenanceRequest {
   date: string;
 }
 
-interface WorkflowCard {
-  id: string;
-  title: string;
-  description: string;
-  type: "task" | "document" | "maintenance";
-  priority: "low" | "medium" | "high";
-  status?: "pending" | "in-progress" | "done";
-}
+// Derived UI helpers for workflows.json entries
+const firstStepTitle = (steps: WorkflowStep[] | undefined) => steps?.[0]?.title ?? "Planned workflow";
+const statusFromSteps = (steps: WorkflowStep[] | undefined) => {
+  if (!steps || steps.length === 0) return "pending" as const;
+  const hasError = steps.some(s => s.status === "error");
+  if (hasError) return "pending" as const;
+  const allDone = steps.every(s => s.status === "done");
+  return (allDone ? "done" : "in-progress") as const;
+};
 
 const LandlordPortal = () => {
   const { toast } = useToast();
@@ -37,63 +39,48 @@ const LandlordPortal = () => {
   const [overIndex, setOverIndex] = useState<number | null>(null);
   const [animatingDone, setAnimatingDone] = useState<Record<string, boolean>>({});
   
-  const [requests, setRequests] = useState<MaintenanceRequest[]>([
-    {
-      id: "REQ001",
-      tenant: "Sarah Johnson",
-      description: "Kitchen sink is leaking underneath. Water is pooling on the cabinet floor.",
-      urgency: "high",
-      category: "Plumbing",
-      status: "in-progress",
-      date: "2024-01-15"
-    },
-    {
-      id: "REQ002",
-      tenant: "Mike Chen",
-      description: "Heating unit in bedroom making loud noises and not heating effectively.",
-      urgency: "medium", 
-      category: "HVAC",
-      status: "open",
-      date: "2024-01-12"
-    },
-    {
-      id: "REQ003",
-      tenant: "Emma Wilson",
-      description: "Light fixture in bathroom is flickering intermittently.",
-      urgency: "low",
-      category: "Electrical",
-      status: "resolved",
-      date: "2024-01-08"
-    },
-    {
-      id: "REQ004",
-      tenant: "John Davis",
-      description: "Water heater not producing hot water, tenants reporting cold showers.",
-      urgency: "urgent",
-      category: "Plumbing",
-      status: "open",
-      date: "2024-01-16"
-    }
-  ]);
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
 
-  const [workflowCards, setWorkflowCards] = useState<WorkflowCard[]>([
-    {
-      id: "WF001",
-      title: "Schedule Plumber for Unit 2A", 
-      description: "Kitchen sink repair - contact Mike's Plumbing",
-      type: "task",
-      priority: "high",
-      status: "in-progress"
-    },
-    {
-      id: "WF002",
-      title: "Lease Contract - Sarah Johnson",
-      description: "Generated lease renewal contract ready for review",
-      type: "document", 
-      priority: "medium",
-      status: "pending"
-    }
-  ]);
+  // Load maintenance requests for landlord via master server
+  useEffect(() => {
+    const base = (import.meta as any)?.env?.VITE_MASTER_SERVER_BASE as string | undefined;
+    if (!base) return;
+    const url = `${String(base).replace(/\/$/, "")}/landlord/requests`;
+    (async () => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { items?: any[] };
+        const items = Array.isArray(data?.items) ? data.items : [];
+        const mapped: MaintenanceRequest[] = items.map((it) => ({
+          id: String(it.id ?? "").toUpperCase(),
+          tenant: String(it.tenant ?? ""),
+          description: String(it.description ?? ""),
+          urgency: (String(it.urgency ?? "medium") as any),
+          category: String(it.category ?? "other"),
+          status: String(it.status ?? "open") as any,
+          date: String(it.date ?? ""),
+        }));
+        setRequests(mapped);
+      } catch {
+        // ignore; keep empty
+      }
+    })();
+  }, []);
+
+  // Load workflows.json via hook
+  const { workflows, refresh, loading: workflowsLoading, error: workflowsError } = useWorkflows({ pollMs: 10000 });
+  // Map JSON entries to a simple card-like shape on the fly
+  const workflowCards = useMemo(() => {
+    return (workflows ?? []).map((w: WorkflowEntry) => ({
+      id: w.id,
+      title: firstStepTitle(w.steps),
+      description: w.prompt,
+      type: (w.result?.type ?? "other") as "task" | "document" | "maintenance" | "other",
+      priority: "medium" as const,
+      status: statusFromSteps(w.steps)
+    }));
+  }, [workflows]);
 
   const handleMarkResolved = (requestId: string) => {
     toast({
@@ -110,26 +97,18 @@ const LandlordPortal = () => {
   };
 
   const handleGenerateContract = () => {
-    const newCard: WorkflowCard = {
-      id: `WF${Date.now()}`,
-      title: "New Lease Contract Generated",
-      description: "Standard lease agreement ready for download",
-      type: "document",
-      priority: "medium"
-    };
-    setWorkflowCards([...workflowCards, newCard]);
     toast({
-      title: "Contract Generated",
-      description: "New lease contract added to your workflow.",
+      title: "Action requires MCP",
+      description: "Ask the agent to generate a contract; it will append to workflows.json.",
     });
   };
 
-  const removeWorkflowCard = (id: string) => {
-    setWorkflowCards(cards => cards.filter(card => card.id !== id));
+  const removeWorkflowCard = (_id: string) => {
+    // Workflows come from file; removal is not persisted from UI in MVP
+    toast({ title: "Not supported", description: "Remove requires MCP to update file." });
   };
 
   const markWorkflowDone = (id: string) => {
-    setWorkflowCards(cards => cards.map(c => c.id === id ? { ...c, status: "done" } : c));
     setAnimatingDone(prev => ({ ...prev, [id]: true }));
     // Hide big checkmark after animation
     setTimeout(() => {
@@ -144,18 +123,7 @@ const LandlordPortal = () => {
     setOverIndex(index);
   };
   const handleDrop = (index: number) => {
-    if (dragIndex === null) return;
-    if (dragIndex === index) {
-      setDragIndex(null);
-      setOverIndex(null);
-      return;
-    }
-    setWorkflowCards(prev => {
-      const next = [...prev];
-      const [moved] = next.splice(dragIndex, 1);
-      next.splice(index, 0, moved);
-      return next;
-    });
+    // Reordering is not persisted in MVP (workflows come from file)
     setDragIndex(null);
     setOverIndex(null);
   };
@@ -165,6 +133,13 @@ const LandlordPortal = () => {
     toast({
       title: "New Request Received",
       description: `Maintenance request from tenant: ${request.description.substring(0, 50)}...`,
+    });
+  };
+
+  const handleAssistantSent = (responseText: string, request: MaintenanceRequest) => {
+    toast({
+      title: "Sent to assistant",
+      description: responseText?.slice(0, 140) || `Processed request ${request.id}`,
     });
   };
 
@@ -402,7 +377,19 @@ const LandlordPortal = () => {
                     ))}
                   </AnimatedList>
 
-                  {workflowCards.length === 0 && (
+                  {workflowsError && (
+                    <div className="text-center py-6 text-destructive text-sm">
+                      Failed to load workflows: {workflowsError}
+                    </div>
+                  )}
+
+                  {workflowsLoading && (
+                    <div className="text-center py-6 text-muted-foreground text-sm">
+                      Loading workflows…
+                    </div>
+                  )}
+
+                  {workflowCards.length === 0 && !workflowsLoading && !workflowsError && (
                     <div className="text-center py-8 text-muted-foreground">
                       <p className="text-sm">No active workflow items</p>
                       <p className="text-xs">Tasks will appear here automatically</p>
@@ -415,7 +402,10 @@ const LandlordPortal = () => {
             {/* Quick Actions */}
             <Card className="shadow-card">
               <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Quick Actions</CardTitle>
+                  <Button variant="outline" size="sm" onClick={refresh}>Refresh Workflows</Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <Button 
@@ -445,6 +435,7 @@ const LandlordPortal = () => {
                 className="h-[calc(100vh-8rem)]"
                 placeholder="Type 'generate lease contract' or manage requests..."
                 onRequestCreated={handleRequestCreated}
+                onAssistantSent={handleAssistantSent}
               />
             </div>
           </div>

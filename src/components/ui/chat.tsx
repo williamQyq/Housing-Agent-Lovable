@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Paperclip, X, FileText, Image, File } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatMessage {
   id: string;
@@ -26,11 +27,13 @@ interface ChatFile {
 interface ChatProps {
   className?: string;
   onMessageSend?: (message: string, files: ChatFile[]) => void;
-  onRequestCreated?: (request: any) => void;
+  onRequestCreated?: (request: unknown) => void;
+  onAssistantSent?: (responseText: string, request: unknown) => void;
   placeholder?: string;
 }
 
-export const Chat = ({ className, onMessageSend, onRequestCreated, placeholder = "Type a message..." }: ChatProps) => {
+export const Chat = ({ className, onMessageSend, onRequestCreated, onAssistantSent, placeholder = "Type a message..." }: ChatProps) => {
+  const { toast } = useToast();
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<ChatFile[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -73,42 +76,18 @@ export const Chat = ({ className, onMessageSend, onRequestCreated, placeholder =
 
   const parseMaintenanceRequest = (content: string) => {
     const lowerContent = content.toLowerCase();
-    
+
     // Check if this looks like a maintenance request
-    const requestKeywords = ['leak', 'broken', 'not working', 'repair', 'fix', 'issue', 'problem', 'maintenance', 'heating', 'plumbing', 'electrical'];
-    const isRequest = requestKeywords.some(keyword => lowerContent.includes(keyword));
-    
-    if (!isRequest) return null;
 
-    // Extract urgency
-    let urgency: "low" | "medium" | "high" | "urgent" = "medium";
-    if (lowerContent.includes('urgent') || lowerContent.includes('emergency') || lowerContent.includes('immediately')) {
-      urgency = "urgent";
-    } else if (lowerContent.includes('high') || lowerContent.includes('asap') || lowerContent.includes('quickly')) {
-      urgency = "high";  
-    } else if (lowerContent.includes('low') || lowerContent.includes('when possible') || lowerContent.includes('eventually')) {
-      urgency = "low";
-    }
-
-    // Extract category
-    let category = "other";
-    if (lowerContent.includes('leak') || lowerContent.includes('plumb') || lowerContent.includes('water') || lowerContent.includes('sink') || lowerContent.includes('toilet')) {
-      category = "plumbing";
-    } else if (lowerContent.includes('heat') || lowerContent.includes('hvac') || lowerContent.includes('air') || lowerContent.includes('temperature')) {
-      category = "hvac";
-    } else if (lowerContent.includes('light') || lowerContent.includes('electrical') || lowerContent.includes('power') || lowerContent.includes('outlet')) {
-      category = "electrical";
-    } else if (lowerContent.includes('appliance') || lowerContent.includes('refrigerator') || lowerContent.includes('stove') || lowerContent.includes('washer')) {
-      category = "appliances";
-    } else if (lowerContent.includes('wall') || lowerContent.includes('ceiling') || lowerContent.includes('floor') || lowerContent.includes('door') || lowerContent.includes('window')) {
-      category = "structural";
-    }
+    /*
+      1. Use embedding classification model to detect if maintenance request
+      2. Use cls model detect urgency
+      3. Use cls model detect category
+     */
 
     return {
       id: `REQ${Date.now()}`,
       description: content,
-      urgency,
-      category,
       status: "open" as const,
       date: new Date().toISOString().split('T')[0],
       files: files.length > 0 ? files : undefined
@@ -130,22 +109,55 @@ export const Chat = ({ className, onMessageSend, onRequestCreated, placeholder =
     setMessages(prev => [...prev, newMessage]);
     onMessageSend?.(message, files);
 
-    // Check if this message creates a maintenance request
+    // Check if this message looks like a maintenance request
     const request = parseMaintenanceRequest(message);
-    if (request && onRequestCreated) {
-      onRequestCreated(request);
-      
-      // Add system response
-      setTimeout(() => {
+    if (request) {
+      // Notify parent for local UI effects (toasts, tables)
+      onRequestCreated?.(request);
+    }
+
+    // Always call Master MCP server and append its response as a system message
+    const envBase = import.meta.env?.VITE_MASTER_SERVER_BASE as string | undefined;
+    const winBase = (globalThis as any)?.__MASTER_SERVER_BASE as string | undefined;
+    const storedBase = ((): string | undefined => {
+      try { return localStorage.getItem('VITE_MASTER_SERVER_BASE') || undefined; } catch { return undefined; }
+    })();
+    const base = envBase || winBase || storedBase || 'http://localhost:8000';
+    const url = `${base.replace(/\/$/, "")}/chat`;
+    (async () => {
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            prompt: message, 
+            tenantEmail: (import.meta as any)?.env?.VITE_TENANT_EMAIL || (globalThis as any)?.__TENANT_EMAIL || undefined,
+            meta: request ? { requestId: request.id } : undefined 
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = (await res.json()) as { text?: string };
+        const text = (data?.text && String(data.text).trim()) || (request ? `Request received. ID: ${request.id}` : "Got it — processing your message.");
         const systemResponse: ChatMessage = {
           id: Math.random().toString(36).substr(2, 9),
-          content: `I've created a maintenance request for you! Request ID: ${request.id}`,
-          type: "system", 
-          timestamp: new Date()
+          content: text,
+          type: "system",
+          timestamp: new Date(),
         };
         setMessages(prev => [...prev, systemResponse]);
-      }, 500);
-    }
+        onAssistantSent?.(text, (request as unknown) ?? null);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Assistant request failed";
+        toast({ title: "Assistant error", description: msg, variant: "destructive" });
+        const fallback: ChatMessage = {
+          id: Math.random().toString(36).substr(2, 9),
+          content: request ? `I noted your request (${request.id}). Unable to reach assistant right now.` : "Unable to reach assistant right now.",
+          type: "system",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, fallback]);
+      }
+    })();
 
     setMessage("");
     setFiles([]);
