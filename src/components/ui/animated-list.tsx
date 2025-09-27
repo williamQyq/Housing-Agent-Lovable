@@ -18,6 +18,7 @@ export const AnimatedList = ({
   const observerRef = useRef<IntersectionObserver | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  // Create the observer once
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
@@ -36,17 +37,26 @@ export const AnimatedList = ({
       }
     );
 
-    const currentRefs = itemRefs.current;
-    currentRefs.forEach((ref) => {
-      if (ref) observerRef.current?.observe(ref);
-    });
-
     return () => {
       observerRef.current?.disconnect();
     };
   }, [staggerDelay]);
 
   const childArray = Array.isArray(children) ? children : [children];
+
+  // Observe items whenever the number of children changes
+  useEffect(() => {
+    const obs = observerRef.current;
+    if (!obs) return;
+    // Unobserve any previous refs to avoid duplicates
+    itemRefs.current.forEach((ref) => {
+      if (ref) obs.unobserve(ref);
+    });
+    // Observe current refs
+    itemRefs.current.forEach((ref) => {
+      if (ref) obs.observe(ref);
+    });
+  }, [childArray.length]);
 
   return (
     <div className={className}>

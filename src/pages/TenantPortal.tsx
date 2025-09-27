@@ -33,7 +33,6 @@ const TenantPortal = () => {
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
 
   // Load recent requests for the tenant via master server (SQLite MCP)
-  const tenantEmail = (import.meta as any)?.env?.VITE_TENANT_EMAIL || "sarah@example.com";
   const leaseId = Number((import.meta as any)?.env?.VITE_LEASE_ID || (globalThis as any)?.__LEASE_ID || 1);
   const [requestsLoading, setRequestsLoading] = useState(true);
   const [requestsError, setRequestsError] = useState<string | null>(null);
@@ -48,13 +47,25 @@ const TenantPortal = () => {
         const winBase = (globalThis as any)?.__MASTER_SERVER_BASE as string | undefined;
         const storedBase = ((): string | undefined => { try { return localStorage.getItem('VITE_MASTER_SERVER_BASE') || undefined; } catch { return undefined; } })();
         const base = envBase || winBase || storedBase || 'http://localhost:8000';
-        const url = `${String(base).replace(/\/$/, "")}/tenant/requests?leaseId=${encodeURIComponent(String(leaseId))}`;
-        
+        // Request a generous limit to show the full history for the demo
+        const url = `${String(base).replace(/\/$/, "")}/tenant/requests?leaseId=${encodeURIComponent(String(leaseId))}&limit=1000`;
+
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         
         const data = (await res.json()) as { items?: MaintenanceRequest[] };
-        const items = Array.isArray(data?.items) ? data.items : [];
+        // console.log(data.items)
+        const itemsRaw = Array.isArray(data?.items) ? data.items : [];
+        // Keep normalization minimal: ensure expected shapes and status hyphenation
+        const items: MaintenanceRequest[] = itemsRaw.map((r) => ({
+          id: String(r.id),
+          description: String(r.description || ""),
+          urgency: (String(r.urgency || "medium") as MaintenanceRequest["urgency"]),
+          category: String(r.category || "other"),
+          status: (String(r.status || "open").replace(/_/g, "-") as MaintenanceRequest["status"]),
+          date: String(r.date || "").slice(0, 10),
+          image: (r as any).image,
+        }));
         setRequests(items);
         console.log(`Loaded ${items.length} maintenance requests for lease ${leaseId}`);
       } catch (error) {
@@ -252,7 +263,7 @@ const TenantPortal = () => {
               <CardContent className="space-y-3">
                 <Button variant="outline" className="w-full justify-start">
                   <Upload className="h-4 w-4 mr-2" />
-                  Upload Documents
+                  Upload Knowledge
                 </Button>
                 <Button variant="outline" className="w-full justify-start">
                   <Send className="h-4 w-4 mr-2" />
